@@ -3,6 +3,7 @@ var canvas = document.getElementById("canvas");
 var engine = new BABYLON.Engine(canvas,true);
 var scene;
 var camera;
+var camera2;
 //----------------Materials------------------------
 var materialRed;
 var materialGreen;
@@ -88,7 +89,8 @@ function createRenderTargetTextures()
     );
 
     simpleTarget.clearColor = new BABYLON.Color3.Blue();
-    simpleTarget.activeCamera = scene.activeCamera
+    simpleTarget.activeCamera = scene.activeCamera;
+    simpleTarget.samples = 4;
     scene.customRenderTargets.push(simpleTarget);
 
     
@@ -107,8 +109,10 @@ function createRenderTargetTextures()
     );
 
     maskTarget.clearColor = new BABYLON.Color3.Black();
-    maskTarget.activeCamera = scene.activeCamera
+    maskTarget.activeCamera = scene.activeCamera;;
+    maskTarget.samples = 4;
     scene.customRenderTargets.push(maskTarget);
+
 }
 
 
@@ -220,7 +224,6 @@ function createCamera()
     camera.keysDown.push(83);
     camera.keysLeft.push(65);
     camera.keysRight.push(68);
-
 }
 
 function createLight()
@@ -228,6 +231,80 @@ function createLight()
     //-----Hemisphere light----
     var light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 50, 0), scene);
     light.diffuse = new BABYLON.Color3(1,1,1);
+}
+
+function createObjectOutlinePasses()
+{
+    
+    //----adding horizontal blurr pass ----------------
+
+    var horizontalBlurrPass = new BABYLON.PostProcess(
+        'Blurr Shader',
+        'BLURR_MASK',  // shader
+        ['HorizontalBlurr','VerticalBlurr'], // attributes
+        ['textureMaskSampler'], // textures
+        1.0,  // options
+        camera, // camera
+        BABYLON.Texture.BILINEAR_SAMPLINGMODE, // sampling
+        engine // engine
+    );
+
+    horizontalBlurrPass.onApply = (effect) => {
+        // update the caustic texture with what we just rendered.
+        effect.setTexture('textureMaskSampler', maskTarget);
+        effect.setInt('HorizontalBlurr', 1);
+        effect.setInt('VerticalBlurr', 0);
+    };
+
+    //----adding horizontal blurr copy -----------------
+
+    var postProcessCopyHorizontal = new BABYLON.PassPostProcess("HorizontalBlurr copy", 1.0, camera);
+
+    //------adding vertical blurr pass-------------------
+
+    var verticalBlurrPass = new BABYLON.PostProcess(
+        'Blurr Shader',
+        'BLURR_MASK',  // shader
+        ['HorizontalBlurr','VerticalBlurr'], // attributes
+        ['textureMaskSampler'], // textures
+        1.0,  // options
+        camera, // camera
+        BABYLON.Texture.BILINEAR_SAMPLINGMODE, // sampling
+        engine // engine
+    );
+
+    verticalBlurrPass.onApply = (effect) => {
+        effect.setTextureFromPostProcess('textureMaskSampler', postProcessCopyHorizontal);
+        effect.setInt('HorizontalBlurr', 0);
+        effect.setInt('VerticalBlurr', 1);
+    };
+
+    //----adding vertical blurr copy ---------------------
+
+    var postProcessCopyVertical = new BABYLON.PassPostProcess("VerticalBlurr copy", 1.0, camera);
+
+
+    //---adding outline pass finally----------------------
+
+    var outlinePass = new BABYLON.PostProcess(
+        'Outline Shader',
+        'OUTLINE',  // shader
+        ['outline_pixel_width','outline_color'], // attributes
+        ['textureMaskSampler','textureSimpleSampler'], // textures
+        1.0,  // options
+        camera, // camera
+        BABYLON.Texture.BILINEAR_SAMPLINGMODE, // sampling
+        engine // engine
+    );
+
+    outlinePass.onApply = (effect) => {
+        effect.setTextureFromPostProcess('textureMaskSampler', postProcessCopyVertical);
+        effect.setTexture('textureSimpleSampler', simpleTarget);
+        effect.setInt('outline_pixel_width', 1);
+        effect.setVector4("outline_color", new BABYLON.Vector4(1.0,1.0,1.0,1.0));
+    };
+    
+  
 }
 
 function createObjectOutlinePlane()
@@ -247,7 +324,6 @@ function createObjectOutlinePlane()
     plane.material = materialoutline;
     plane.parent = camera;
 }
-
 
 
 function createGUI()
@@ -315,11 +391,13 @@ function createScene()
     scene.clearColor = new BABYLON.Color3.Blue();
 
     createMaterials();
+    createCamera();
     createRenderTargetTextures();
     createObjects();
-    createCamera();
+    
     createLight();
-    createObjectOutlinePlane();
+    //createObjectOutlinePlane();
+    createObjectOutlinePasses();
     createGUI();
 
     return scene;
